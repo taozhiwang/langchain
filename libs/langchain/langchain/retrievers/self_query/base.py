@@ -8,6 +8,7 @@ from langchain.chains.query_constructor.base import load_query_constructor_chain
 from langchain.chains.query_constructor.ir import StructuredQuery, Visitor
 from langchain.chains.query_constructor.schema import AttributeInfo
 from langchain.pydantic_v1 import BaseModel, Field, root_validator
+from langchain.retrievers.self_query.awadb import AwaDBTranslator
 from langchain.retrievers.self_query.chroma import ChromaTranslator
 from langchain.retrievers.self_query.deeplake import DeepLakeTranslator
 from langchain.retrievers.self_query.elasticsearch import ElasticsearchTranslator
@@ -18,6 +19,7 @@ from langchain.retrievers.self_query.weaviate import WeaviateTranslator
 from langchain.schema import BaseRetriever, Document
 from langchain.schema.language_model import BaseLanguageModel
 from langchain.vectorstores import (
+    AwaDB,
     Chroma,
     DeepLake,
     ElasticsearchStore,
@@ -40,6 +42,7 @@ def _get_builtin_translator(vectorstore: VectorStore) -> Visitor:
         MyScale: MyScaleTranslator,
         DeepLake: DeepLakeTranslator,
         ElasticsearchStore: ElasticsearchTranslator,
+        AwaDB: AwaDBTranslator,
     }
     if vectorstore_cls not in BUILTIN_TRANSLATORS:
         raise ValueError(
