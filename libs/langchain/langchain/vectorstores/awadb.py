@@ -47,26 +47,42 @@ class AwaDB(VectorStore):
             None.
         """
         try:
-            import awadb
+            print("use client\n\n\n")
+            from awadb.client import Awa
+            self.use_client = True
         except ImportError:
-            raise ImportError(
-                "Could not import awadb python package. "
-                "Please install it with `pip install awadb`."
-            )
+            try:
+                self.use_client = False
+                import warnings
+                warnings.warn("Consider using Awadb service to follow the latest updates", category=Warning)
+
+                import awadb
+            except ImportError:
+                raise ImportError(
+                    "Could not import awadb python package. "
+                    "Please install it with `pip install awadb`."
+                )
 
         if client is not None:
             self.awadb_client = client
         else:
             if log_and_data_dir is not None:
-                self.awadb_client = awadb.Client(log_and_data_dir)
+                if self.use_client:
+                    self.awadb_client = Awa(log_and_data_dir)
+                else:
+                    self.awadb_client = awadb.Client(log_and_data_dir)
             else:
-                self.awadb_client = awadb.Client()
+                if self.use_client:
+                    self.awadb_client = Awa()
+                else:
+                    self.awadb_client = awadb.Client()
 
         if table_name == self._DEFAULT_TABLE_NAME:
             table_name += "_"
             table_name += str(uuid.uuid4()).split("-")[-1]
 
-        self.awadb_client.Create(table_name)
+        if not self.use_client:
+            self.awadb_client.Create(table_name)
         self.table2embeddings: dict[str, Embeddings] = {}
         if embedding is not None:
             self.table2embeddings[table_name] = embedding
@@ -104,14 +120,24 @@ class AwaDB(VectorStore):
                 list(texts)
             )
 
-        return self.awadb_client.AddTexts(
-            "embedding_text",
-            "text_embedding",
-            texts,
-            embeddings,
-            metadatas,
-            is_duplicate_texts,
-        )
+        doc= [{"text": texts}]
+        if metadatas != None:
+            doc += metadatas
+        if self.use_client:
+            return self.awadb_client.add(
+                table_name=self.using_table_name,
+                docs=doc
+            )
+        
+        else:
+            return self.awadb_client.AddTexts(
+                "embedding_text",
+                "text_embedding",
+                texts,
+                embeddings,
+                metadatas,
+                is_duplicate_texts,
+            )
 
     def load_local(
         self,
@@ -269,13 +295,23 @@ class AwaDB(VectorStore):
         if embedding is None:
             return results
 
-        show_results = self.awadb_client.Search(
-            embedding,
-            k,
-            text_in_page_content=text_in_page_content,
-            meta_filter=meta_filter,
-            not_include_fields=not_include_fields_in_metadata,
-        )
+        if self.use_client:
+            print(self.using_table_name)
+            show_results = self.awadb_client.search(
+                table_name=self.using_table_name,
+                vec_query=embedding,
+                topn=k,
+                meta_filter=meta_filter,
+                include_fields=not_include_fields_in_metadata
+            )
+        else:
+            show_results = self.awadb_client.Search(
+                embedding,
+                k,
+                text_in_page_content=text_in_page_content,
+                meta_filter=meta_filter,
+                not_include_fields=not_include_fields_in_metadata,
+            )
 
         if show_results.__len__() == 0:
             return results
@@ -434,13 +470,20 @@ class AwaDB(VectorStore):
         if self.awadb_client is None:
             raise ValueError("AwaDB client is None!!!")
 
-        docs_detail = self.awadb_client.Get(
-            ids=ids,
-            text_in_page_content=text_in_page_content,
-            meta_filter=meta_filter,
-            not_include_fields=not_include_fields,
-            limit=limit,
-        )
+        if self.use_client:
+            docs_detail = self.awadb_client.get(
+                table_name=self.using_table_name,
+                ids=ids
+            )
+
+        else:
+            docs_detail = self.awadb_client.Get(
+                ids=ids,
+                text_in_page_content=text_in_page_content,
+                meta_filter=meta_filter,
+                not_include_fields=not_include_fields,
+                limit=limit,
+            )
 
         results: Dict[str, Document] = {}
         for doc_detail in docs_detail:
@@ -479,7 +522,10 @@ class AwaDB(VectorStore):
         ret: Optional[bool] = None
         if ids is None or ids.__len__() == 0:
             return ret
-        ret = self.awadb_client.Delete(ids)
+        if self.use_client:
+            ret = self.awadb_client.delete(table_name=self.using_table_name, ids=ids)
+        else:
+            ret = self.awadb_client.Delete(ids)
         return ret
 
     def update(
@@ -502,9 +548,19 @@ class AwaDB(VectorStore):
         if self.awadb_client is None:
             raise ValueError("AwaDB client is None!!!")
 
-        return self.awadb_client.UpdateTexts(
-            ids=ids, text_field_name="embedding_text", texts=texts, metadatas=metadatas
-        )
+        if self.use_client:
+            self.awadb_client.delete(table_name=self.using_table_name, ids=ids)
+            doc= [{"text": texts}]
+            if metadatas != None:
+                doc += metadatas
+            return self.awadb_client.add(
+                table_name=self.using_table_name,
+                docs=doc
+            )
+        else:
+            return self.awadb_client.UpdateTexts(
+                ids=ids, text_field_name="embedding_text", texts=texts, metadatas=metadatas
+            )
 
     def create_table(
         self,
@@ -516,11 +572,10 @@ class AwaDB(VectorStore):
         if self.awadb_client is None:
             return False
 
-        ret = self.awadb_client.Create(table_name)
+        #ret = self.awadb_client.Create(table_name)
+        self.using_table_name = table_name
 
-        if ret:
-            self.using_table_name = table_name
-        return ret
+        return True
 
     def use(
         self,
@@ -532,11 +587,10 @@ class AwaDB(VectorStore):
         if self.awadb_client is None:
             return False
 
-        ret = self.awadb_client.Use(table_name)
-        if ret:
-            self.using_table_name = table_name
+        #ret = self.awadb_client.Use(table_name)        
+        self.using_table_name = table_name
 
-        return ret
+        return True
 
     def list_tables(
         self,
